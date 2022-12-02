@@ -49,12 +49,22 @@ end
 class1 = Y_Vals == 0;
 class2 = Y_Vals == 1;
 Y = [class1', class2'];
+
 %% Data processing
 windowSize = 300;
 samplingFrequency = 1e3;
 
 EMGFeatures = getDataFeatures(X_Vals', windowSize, samplingFrequency); 
 EMGFeatures = EMGFeatures/max(max(EMGFeatures));
+
+%% Separate Into Training and Testing Sets
+train_length = floor(min_length*0.8);
+
+Y_train = Y(1:train_length-1,:);
+X_train = EMGFeatures(1:train_length-1,:);
+
+Y_test = Y(train_length:end,:);
+X_test = EMGFeatures(train_length:end,:);
 %% Plot Features
 plot(EMGFeatures')
 hold on

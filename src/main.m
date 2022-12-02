@@ -36,23 +36,6 @@ tdata=[0];
 tcontrol=[];
 pause(0.5)
 
-% our stuff
-rest_basev = [];
-flex_basev = [];
-base_compare_v = [];
-rest_base = nan;
-flex_base = nan;
-
-i = 1;
-check_goal = 100;
-goal = 0;
-der_peaks_temp_data = zeros(1,10);
-window_size = 300;
-calibration_step_length = 2000;
-axis([Tmin,Tmax, 0,1]);
-sinusoid_rt = animatedline('Color','r','LineWidth',3);
-sinusoid_rt_data = nan(2,10e6);
-%
 tic
 while(ishandle(fig)) % run or figure closes
     % SAMPLE ARDUINO
@@ -73,86 +56,20 @@ while(ishandle(fig)) % run or figure closes
         % UPDATE
         timeStamp = toc; %get timestamp
         % CALCULATE CONTROL VALUES
- 
-        if(dataindex < window_size)
-            continue;
-        end
         try
             %% start of your code
-            temp_data = data(dataindex-window_size:dataindex-1);
-            temp_data(temp_data < 0) = 0;
-            if dataindex > window_size && dataindex < (calibration_step_length + window_size)
-                rest_basev(length(rest_basev)+1) = mean(findpeaks(temp_data));
-                disp('Relax hand')
-            elseif dataindex > (calibration_step_length + window_size) && dataindex < (2*calibration_step_length + window_size)
-                flex_basev(length(flex_basev)+1) = mean(findpeaks(temp_data));
-                disp('Flex hand')
-            end
-            if dataindex > (2*calibration_step_length + window_size)
-                if(isnan(flex_base) || isnan(rest_base))
-                    rest_base = mean(rest_basev);
-                    flex_base = mean(flex_basev);
-                end
-                switch alg
-                    case 1
-                        peak_avg = mean(findpeaks(temp_data));
-                        base_compare = (peak_avg - rest_base)./(flex_base - rest_base);
-                        base_compare_v(length(base_compare_v)+1) = base_compare;
-                        base_compare_f = fft(base_compare_v);
-                        base_compare_f(50:end) = 0;
-                        base_compare_re = ifft(base_compare_f);
-                        
-                        control(1,controlindex) = real(base_compare_re(end));
-                        disp('Ready to record')
-                        
-                    case 2                 
-                        peaks_temp_data = findpeaks(temp_data);
-                        peak_avg = mean(peaks_temp_data);
-                        base_compare = (((peak_avg - rest_base))./(flex_base - rest_base));
 
-                        % update target every 'check_goal' iterations.
-                        if(i >= check_goal)
-                            if(base_compare < 0)
-                                goal = -1;
-                            elseif(base_compare > 0.5)
-                                goal = 1;
-                            else
-                                goal = 0;
-                            end
-                            i = 1;
-                        else
-                            i = i + 1;
-                        end
-                            
-                        % pid stuff begin
-                        prev_error = error;
-                        error = goal - base_compare;
-                        dt = timeStamp - tcontrol(controlindex - 1);
-                
-                        p = kp * error; % proportional gain
-                        int_g = int_g + ki * error * dt; % integral gain
-                        d = kd *((error - prev_error)./dt); % derivative gain
-                
-                        control_val = base_compare + p + d;
-                        % pid stuff end
-                
-                        control(1,controlindex) = control_val;
-                        disp('Recording')
-                    case 3
-                
-                        peaks_temp_data = findpeaks(temp_data);
-                        peak_avg = mean(peaks_temp_data);
-                    
-                        base_compare = (((peak_avg - rest_base))./(flex_base - rest_base));
-                        control(1,controlindex) = base_compare;
-                        disp('Recording')
-                end
+            switch alg
+                case 1
+
+                case 2                 
+
             end
-            new_point_sin = 0.5.*sin(timeStamp) + 0.5;
-            addpoints(sinusoid_rt,timeStamp, new_point_sin);
-            sinusoid_rt_data(1,controlindex - 1) = timeStamp; % first row is time data
-            sinusoid_rt_data(2, controlindex - 1) = new_point_sin; % second row is sinusoid
-            drawnow limitrate
+%             new_point_sin = 0.5.*sin(timeStamp) + 0.5;
+%             addpoints(sinusoid_rt,timeStamp, new_point_sin);
+%             sinusoid_rt_data(1,controlindex - 1) = timeStamp; % first row is time data
+%             sinusoid_rt_data(2, controlindex - 1) = new_point_sin; % second row is sinusoid
+%             drawnow limitrate
             %% end of your code
         catch ME
             disp('Something broke in your code!')

@@ -11,7 +11,7 @@ phasesPerClass = 10;
 phaseWindowSize = 2000;
 timeWindowSize = 5000;
 [data, tdata, labels] = collectTriallData(timeWindowSize, phaseWindowSize, phasesPerClass);
-
 %% Plot Data
 data = data(~isnan(data));
+labels = labels(~isnan(labels));
 plot((data));
