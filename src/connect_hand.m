@@ -4,7 +4,7 @@ function [model_info, movements,command, selectedDigits_Set1, selectedDigits_Set
 % hand.
 try    
 % CONNECT TO MUJOCO
-    addpath('apimex')
+    addpath('..\\mjhaptix\\apimex')
     hx_close
     hx_connect('')
     model_info = hx_robot_info

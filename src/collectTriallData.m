@@ -1,28 +1,28 @@
 % Author: Jordy A. Larrea Rodriguez
 % Data Collection for 1 trial
-function [data, tdata, labels] = collectTriallData(timeWindowSize, phaseWindowSize, phasesPerClass)
+function [data, tdata, labels] = collectTriallData(uno, timeWindowSize, phaseWindowSize, phasesPerClass)
     loop = tic;
     increments = 1;
     timeStamp = 0;
     warmUpWindowSize = 1000;
 
-    [uno, ArduinoConnected]=connect_ard1ch();
-
-    data = NaN(1,1e6);
-    tdata = NaN(1,1e6);
     labels = NaN(1,1e6);
     
-
     restPhase = true;
     class = 1;
     phasesCompleted = 0;
-    dataindex = 1;
-    prevSamp = dataindex;
-    while increments < timeWindowSize
+
+    while increments < warmUpWindowSize
         emg = uno.getRecentEMG;% values returned will be between -2.5 and 2.5 , will be a 1 x up to 330
         pause(0.001);
         increments = increments + 1;
     end
+    [~, animatedLines, Tmax, Tmin] = plotSetup1ch();
+    [data,control, dataindex, controlindex, prevSamp,~]=init1ch();
+    tdata=[0];
+    tcontrol=[];
+    pause(0.5)
+
     increments = 1;
     while phasesCompleted < 2*phasesPerClass
         try
@@ -49,7 +49,8 @@ function [data, tdata, labels] = collectTriallData(timeWindowSize, phaseWindowSi
             if ~isempty(emg)
                 [~,newsamps] = size(emg); % helps to know how much more data was received
                 data(:,dataindex:dataindex+newsamps-1) = emg(1,:); % adds new EMG data to the data vector
-                dataindex = dataindex + newsamps; %update sample count                
+                dataindex = dataindex + newsamps; %update sample count 
+                controlindex = controlindex + 1;
             else
                 disp('empty array')
             end
@@ -57,13 +58,13 @@ function [data, tdata, labels] = collectTriallData(timeWindowSize, phaseWindowSi
             disp('error')
         end
         if ~isempty(emg)
+         
             tempStart = timeStamp;
             timeStamp = toc(loop);
             tdata(prevSamp:dataindex-1)=linspace(tempStart,timeStamp,newsamps);
 
             labels(prevSamp:dataindex-1) = class;
             
-            prevSamp = dataindex;
             if(mod(increments, timeWindowSize) == 0) % conclude phase after a timeWindow has passed
                 if(class == 0)
                     class = 1;
@@ -74,9 +75,17 @@ function [data, tdata, labels] = collectTriallData(timeWindowSize, phaseWindowSi
                 restPhase = true;
                 phasesCompleted = phasesCompleted + 1;
                 increments = 1;
-            end
+            end 
+
+            tcontrol(controlindex)=timeStamp;   
+            tempStart = tdata(end);
+            tdata(prevSamp:dataindex-1)=linspace(tempStart,timeStamp,newsamps);
+           
+            [Tmax, Tmin] = updatePlot1ch(animatedLines, timeStamp, data, control, prevSamp, dataindex, controlindex, Tmax, Tmin);
+    
+            prevSamp = dataindex;
         end
-        pause(0.001);
+
         increments = increments + 1;
     end
     disp('Trial Complete!')

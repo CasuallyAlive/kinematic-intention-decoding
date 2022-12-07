@@ -4,6 +4,19 @@ try
 catch
 end
 clear all; clc;
+
+%% Features
+featurecount = menu("How many Features?", "Only movmean", "All features");
+%%
+switch(featurecount)
+    case 1
+        load("..\\DNN_model\\DNN_sEMG_Classifier_1_feature.mat", "model");
+        maxFeature = 0.28;
+    case 2
+        load("..\\DNN_model\\DNN_sEMG_Classifier.mat", "model");
+end
+% load("..\\DNN_model\\maxVal2.mat", "maxFeature");
+
 %% Section 1: Set Up Virtual Environment (MuJoCo)
 % You should have MuJoCo open with a model loaded and running before
 % starting this code!  If your code is crashing during this section, try
@@ -15,13 +28,24 @@ clear all; clc;
 %% connect to arduino
 [uno, ArduinoConnected]=connect_ard1ch();% can put the comport number in as an argument to bypass automatic connection, useful if more than one arduino uno is connected
 
-%% Select Algorithm
-alg = menu('Select algorithm to use','Algorithm 1','Algorithm 2', 'Algorithm 3');
-%% Set PID Weights and initiate previous error
-kp = 0.1;
-kd = 0.001;
-ki = 0.00000001;
-goal = 0;
+%% Grip Thresholds
+%% Linear MPC
+x0 = 0;
+u0 = 1; % control = 0
+Ts = 0.001;
+mpc_controller = nlmpc(1,1,1);
+mpc_controller.Ts = 0.001;
+mpc_controller.PredictionHorizon = 2;
+mpc_controller.ControlHorizon = 2;
+
+mpc_controller.Model.StateFcn = @(x,u) myStateFunction(x,u);
+mpc_controller.Model.OutputFcn = @(x,u) outputFunction(x,u);
+validateFcns(mpc_controller, x0, u0)
+%% Set PID Weights and initiate PID specific Variables
+kp = 0.085;
+kd = 0.00000005;
+ki = 0.008;
+% goal = 0;
 prev_error = 0;
 error = 0;
 p = 0; int_g = 0; d = 0;
@@ -35,16 +59,31 @@ p = 0; int_g = 0; d = 0;
 tdata=[0];
 tcontrol=[];
 pause(0.5)
+controlVal = 0;
 
-tic
+interval = 1;
+prevControl = 0;
+checkStateInterval = 50;
+currentPred = 0;
+featuresEMG = [];
+i0 = 1; i1 = 1;
+
+flag = false;
+timeElapsedLoop = 0;
+loopTime = tic;
+
+featureFig = figure();
+
 while(ishandle(fig)) % run or figure closes
     % SAMPLE ARDUINO
     try
+        iterationTime = tic;
         emg = uno.getRecentEMG;% values returned will be between -2.5 and 2.5 , will be a 1 x up to 330
         if ~isempty(emg)
             [~,newsamps] = size(emg); % helps to know how much more data was received
             data(:,dataindex:dataindex+newsamps-1) = emg(1,:); % adds new EMG data to the data vector
             dataindex = dataindex + newsamps; % update sample  
+            i1 = dataindex;
             controlindex = controlindex + 1;
         else
             disp('empty array')
@@ -54,29 +93,60 @@ while(ishandle(fig)) % run or figure closes
     end
     if ~isempty(emg)
         % UPDATE
-        timeStamp = toc; %get timestamp
+        timeStamp = toc(loopTime); %get timestamp
         % CALCULATE CONTROL VALUES
         try
-            %% start of your code
-
-            switch alg
-                case 1
-
-                case 2                 
-
+            prevControl = controlVal;
+            if(i1 - 1000 > 1)
+                controlVal = ((mean(abs(data(i1-1000:i1-1)))) - .13)./(0.15 - .13);
+            else
+                controlVal = prevControl;
             end
-%             new_point_sin = 0.5.*sin(timeStamp) + 0.5;
-%             addpoints(sinusoid_rt,timeStamp, new_point_sin);
-%             sinusoid_rt_data(1,controlindex - 1) = timeStamp; % first row is time data
-%             sinusoid_rt_data(2, controlindex - 1) = new_point_sin; % second row is sinusoid
-%             drawnow limitrate
-            %% end of your code
+            prev_error = error;
+            error = currentPred - controlVal;
+            try
+                dt = timeStamp - tcontrol(controlindex - 1);
+                d = kd *((error - prev_error)./dt); % derivative gain
+            catch
+                dt = 0;
+                d = 0;
+            end
+            p = kp * error; % proportional gain
+            int_g = int_g + ki * error * dt; % integral gain
+            controlVal = p + d + int_g + controlVal;
+            if(controlVal > 1)
+                controlVal = 1;
+            elseif(controlVal < 0)
+                controlVal = 0;
+            end
+            control(1, controlindex) = controlVal;
+            % Inference block
+            if(mod(interval, checkStateInterval) == 0 && i1 - 1350 > 1)
+
+                switch(featurecount)
+                    case 1
+                       featuresEMG = getDataFeatures(data(i1 - 1350 : i1-1), 300, 1e3, maxFeature, false);
+                    case 2
+                       featuresEMG = getDataFeatures(data(i1 - 1350 : i1-1), 300, 1e3, 0.5799, true);
+                end
+
+                currentPred = predictedOverallState(testNeuralNetwork(featuresEMG, model));
+
+                plotEMGFeatures(featuresEMG, featureFig);        
+                disp(strcat("Inference: ", string(currentPred)));
+
+                i0 = dataindex;
+                interval = 1;
+                flag = true;
+            end
+            % end of your code
         catch ME
             disp('Something broke in your code!')
         end
         tcontrol(controlindex)=timeStamp;   
         tempStart = tdata(end);
         tdata(prevSamp:dataindex-1)=linspace(tempStart,timeStamp,newsamps);
+        figure(fig);
         % UPDATE PLOT
         [Tmax, Tmin] = updatePlot1ch(animatedLines, timeStamp, data, control, prevSamp, dataindex, controlindex, Tmax, Tmin);
         
@@ -86,6 +156,11 @@ while(ishandle(fig)) % run or figure closes
         end
         previousTimeStamp = timeStamp;
         prevSamp = dataindex;
+        interval = interval + 1;
+        if(flag)
+            flag = false;
+            timeElapsedLoop = toc(iterationTime);
+        end
     end
 end
 %% Plot the data and control values from the most recent time running the system

@@ -1,3 +1,7 @@
 mjhaptix/**
 Arduino/**
 trialData/**
+trialData_old/**
+svm_model/**
+DNN_model/**
+*.asv
