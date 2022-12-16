@@ -5,3 +5,5 @@ trialData_old/**
 svm_model/**
 DNN_model/**
 *.asv
+*.fig
+*.png

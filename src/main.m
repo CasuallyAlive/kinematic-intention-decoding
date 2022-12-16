@@ -7,11 +7,14 @@ clear all; clc;
 
 %% Features
 featurecount = menu("How many Features?", "Only movmean", "All features");
+
+%% Controller
+controllerInput = menu("Which Controller?", "PID", "MPC");
 %%
 switch(featurecount)
     case 1
         load("..\\DNN_model\\DNN_sEMG_Classifier_1_feature.mat", "model");
-        maxFeature = 0.28;
+        maxFeature = 0.38;
     case 2
         load("..\\DNN_model\\DNN_sEMG_Classifier.mat", "model");
 end
@@ -30,7 +33,7 @@ end
 
 %% Grip Thresholds
 %% Linear MPC
-x0 = 0;
+x0 = -1;
 u0 = 1; % control = 0
 Ts = 0.001;
 mpc_controller = nlmpc(1,1,1);
@@ -40,11 +43,12 @@ mpc_controller.ControlHorizon = 2;
 
 mpc_controller.Model.StateFcn = @(x,u) myStateFunction(x,u);
 mpc_controller.Model.OutputFcn = @(x,u) outputFunction(x,u);
+
 validateFcns(mpc_controller, x0, u0)
 %% Set PID Weights and initiate PID specific Variables
-kp = 0.085;
-kd = 0.00000005;
-ki = 0.008;
+kp = 0.008;
+kd = 0.001;
+ki = 0.006;
 % goal = 0;
 prev_error = 0;
 error = 0;
@@ -54,6 +58,10 @@ p = 0; int_g = 0; d = 0;
 % SET UP PLOT
 [fig, animatedLines, Tmax, Tmin] = plotSetup1ch();
 
+axis([Tmin,Tmax, 0,1]);
+sinusoid_rt = animatedline('Color','r','LineWidth',3);
+sinusoid_rt_data = nan(2,10e6);
+
 % INITIALIZATION
 [data,control, dataindex, controlindex, prevSamp,previousTimeStamp]=init1ch();
 tdata=[0];
@@ -62,8 +70,7 @@ pause(0.5)
 controlVal = 0;
 
 interval = 1;
-prevControl = 0;
-checkStateInterval = 50;
+checkStateInterval = 25;
 currentPred = 0;
 featuresEMG = [];
 i0 = 1; i1 = 1;
@@ -96,24 +103,28 @@ while(ishandle(fig)) % run or figure closes
         timeStamp = toc(loopTime); %get timestamp
         % CALCULATE CONTROL VALUES
         try
-            prevControl = controlVal;
-            if(i1 - 1000 > 1)
-                controlVal = ((mean(abs(data(i1-1000:i1-1)))) - .13)./(0.15 - .13);
-            else
-                controlVal = prevControl;
+            switch(controllerInput)
+                case 1
+                    prev_error = error;
+                    error = currentPred - controlVal;
+                    try
+                        dt = timeStamp - tcontrol(controlindex - 1);
+                        d = kd *((error - prev_error)./dt); % derivative gain
+                    catch
+                        dt = 0;
+                        d = 0;
+                    end
+                    p = kp * error; % proportional gain
+                    int_g = int_g + ki * error * dt; % integral gain
+                    controlVal = p + d + int_g + controlVal;
+                case 2
+                    if(currentPred == 0)
+                        controlVal = mpc_controller.nlmpcmove(1,controlVal);
+                    else
+                        controlVal = mpc_controller.nlmpcmove(-1,controlVal);
+                    end
             end
-            prev_error = error;
-            error = currentPred - controlVal;
-            try
-                dt = timeStamp - tcontrol(controlindex - 1);
-                d = kd *((error - prev_error)./dt); % derivative gain
-            catch
-                dt = 0;
-                d = 0;
-            end
-            p = kp * error; % proportional gain
-            int_g = int_g + ki * error * dt; % integral gain
-            controlVal = p + d + int_g + controlVal;
+            
             if(controlVal > 1)
                 controlVal = 1;
             elseif(controlVal < 0)
@@ -143,10 +154,21 @@ while(ishandle(fig)) % run or figure closes
         catch ME
             disp('Something broke in your code!')
         end
+
         tcontrol(controlindex)=timeStamp;   
         tempStart = tdata(end);
         tdata(prevSamp:dataindex-1)=linspace(tempStart,timeStamp,newsamps);
         figure(fig);
+        
+        % Plot RT Sinusoid
+        if(isvalid(sinusoid_rt))
+            new_point_sin = -0.5.*square(timeStamp/4)+0.5;
+            addpoints(sinusoid_rt,timeStamp, new_point_sin);
+            sinusoid_rt_data(1,controlindex) = timeStamp; % first row is time data
+            sinusoid_rt_data(2, controlindex) = new_point_sin; % second row is sinusoid
+            drawnow limitrate
+        end
+
         % UPDATE PLOT
         [Tmax, Tmin] = updatePlot1ch(animatedLines, timeStamp, data, control, prevSamp, dataindex, controlindex, Tmax, Tmin);
         
@@ -160,6 +182,9 @@ while(ishandle(fig)) % run or figure closes
         if(flag)
             flag = false;
             timeElapsedLoop = toc(iterationTime);
+        end
+        if(toc(loopTime) >= 180)
+            break;
         end
     end
 end
